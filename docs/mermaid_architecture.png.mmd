@@ -1,0 +1,163 @@
+# 系统模块结构图 - 适合插入报告
+
+graph TB
+    subgraph 用户接口层
+        CLI[命令行接口<br/>main.py<br/>argc/argv参数解析
+        提供6步处理流程控制<br/>调用AudioProcessor]
+    end
+
+    subgraph 核心控制层
+        AP[AudioProcessor<br/>音频处理器
+        - 管理音频数据
+        - 协调各模块工作
+        - 控制处理流程
+        - 存储分析结果]
+    end
+
+    subgraph 滤波器模块群
+        FD[FilterDesign类<br/>filters.py
+        ┌─────────────────────────┐
+        │ FIR滤波器设计          │
+        │  - 窗函数法设计         │
+        │  - 多种窗函数支持       │
+        │  - 线性相位保证         │
+        │                        │
+        │ IIR滤波器设计          │
+        │  - 巴特沃斯滤波器       │
+        │  - 切比雪夫I型          │
+        │  - 切比雪夫II型         │
+        │  - 椭圆滤波器           │
+        │                        │
+        │ 自适应滤波器           │
+        │  - LMS算法             │
+        │  - NLMS算法            │
+        │  - 维纳滤波            │
+        └─────────────────────────┘
+
+        提供滤波器设计API         ]
+    end
+
+    subgraph 分析模块群
+        SA[SignalAnalysis类<br/>analysis.py
+        ┌─────────────────────────┐
+        │ 时域分析功能            │
+        │  - 波形绘制             │
+        │  - 统计特性计算         │
+        │  - 包络分析             │
+        │  - 自相关分析           │
+        └─────────────────────────┘
+
+        提供时域分析API          ]
+
+        FA[FrequencyAnalysis类<br/>analysis.py
+        ┌─────────────────────────┐
+        │ 频域分析功能            │
+        │  - FFT频谱分析         │
+        │  - 功率谱密度(PSD)      │
+        │  - 频谱图(时频分析)     │
+        │  - 信噪比计算           │
+        │  - 谐波失真分析         │
+        │  - 信号对比分析         │
+        └─────────────────────────┘
+
+        提供频域分析API          ]
+    end
+
+    subgraph 工具模块群
+        Utils[utils.py<br/>工具函数模块
+        ┌─────────────────────────┐
+        │ 文件操作功能            │
+        │  - load_audio()         │
+        │  - save_audio()         │
+        │  - 多格式支持           │
+        │                        │
+        │ 信号处理辅助            │
+        │  - normalize_signal()   │
+        │  - ensure_dir()         │
+        │                        │
+        │ 性能评估功能            │
+        │  - evaluate_noise_reduction │
+        └─────────────────────────┘
+
+        基础支持函数            ]
+    end
+
+    subgraph 数据存储层
+        Input[输入数据<br/>audio/
+        - 原始音频文件
+        - 噪声文件]
+
+        Output[输出结果<br/>results/
+        - denoised.wav
+        - removed_noise.wav
+        - 分析图表(PNG)
+        - 分析报告]
+    end
+
+    subgraph 第三方依赖
+        NP[numpy<br/>数值计算基础<br/>数组操作]
+        SP[scipy<br/>信号处理库<br/>滤波器设计]
+        MP[matplotlib<br/>图表绘制<br/>可视化]
+        SF[soundfile<br/>音频文件IO
+        多格式支持]
+    end
+
+    CLI -->|调用| AP
+    AP -->|使用| FD
+    AP -->|使用| SA
+    AP -->|使用| FA
+    AP -->|使用| Utils
+
+    AP -->|读取| Input
+    AP -->|保存| Output
+
+    FD -->|依赖| NP
+    FD -->|调用| SP
+
+    SA -->|依赖| NP
+    SA -->|调用| SP
+    SA -->|绘图| MP
+
+    FA -->|依赖| NP
+    FA -->|调用| SP
+    FA -->|绘图| MP
+
+    Utils -->|调用| NP
+    Utils -->|调用| SP
+    Utils -->|调用| SF
+
+    style CLI fill:#e1f5ff,stroke:#333,stroke-width:2px
+    style AP fill:#fff4e1,stroke:#333,stroke-width:2px
+    style FD fill:#e8f5e9,stroke:#333,stroke-width:2px
+    style SA fill:#e8f5e9,stroke:#333,stroke-width:2px
+    style FA fill:#e8f5e9,stroke:#333,stroke-width:2px
+    style Utils fill:#f3e5f5,stroke:#333,stroke-width:2px
+    style Input fill:#ffebee,stroke:#333,stroke-width:1px
+    style Output fill:#e0f2f1,stroke:#333,stroke-width:1px
+    style NP fill:#e3f2fd,stroke:#333,stroke-width:1px
+    style SP fill:#e3f2fd,stroke:#333,stroke-width:1px
+    style MP fill:#e3f2fd,stroke:#333,stroke-width:1px
+    style SF fill:#e3f2fd,stroke:#333,stroke-width:1px
+
+    linkStyle 0 stroke-width:2px,stroke:red
+    linkStyle 1 stroke-width:1px,stroke:blue
+    linkStyle 2 stroke-width:1px,stroke:blue
+    linkStyle 3 stroke-width:1px,stroke:blue
+    linkStyle 4 stroke-width:1px,stroke:blue
+    linkStyle 5 stroke-width:1px,stroke:green
+    linkStyle 6 stroke-width:1px,stroke:brown
+
+    subgraph 图例
+        direction LR
+        L1[用户接口]:::user
+        L2[核心控制]:::core
+        L3[功能模块]:::module
+        L4[数据层]:::data
+        L5[第三方库]:::lib
+
+        classDef user fill:#e1f5ff
+        classDef core fill:#fff4e1
+        classDef module fill:#e8f5e9
+        classDef data fill:#ffebee
+        classDef lib fill:#e3f2fd
+    end

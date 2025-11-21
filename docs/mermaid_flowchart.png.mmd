@@ -1,0 +1,66 @@
+# DSP音频处理流程图 - 适合插入报告
+
+flowchart TD
+    Start([开始处理音频]) --> Load[加载音频文件<br/>支持: WAV, MP3, FLAC, OGG]
+    Load --> Resample[重采样到统一采样率<br/>44100 Hz]
+
+    Resample --> TimeAnalysis[时域分析<br/>SignalAnalysis类]
+    Resample --> FreqAnalysis[频域分析<br/>FrequencyAnalysis类]
+
+    TimeAnalysis --> Stats[计算统计特性<br/>均值/方差/RMS/峰值等]
+    TimeAnalysis --> PlotTime[绘制时域波形<br/>matplotlib]
+    TimeAnalysis --> Envelope[计算信号包络<br/>希尔伯特变换]
+
+    FreqAnalysis --> FFT[FFT频谱分析<br/>快速傅里叶变换]
+    FreqAnalysis --> PSD[功率谱密度<br/>Welch方法]
+    FreqAnalysis --> Spectrogram[频谱图<br/>时频分析]
+    FreqAnalysis --> SNR[计算信噪比<br/>评估指标]
+
+    Stats --> FilterDesign[滤波器设计<br/>FilterDesign类]
+    FFT --> FilterDesign
+
+    FilterDesign --> FIR[FIR滤波器<br/>窗函数法设计]
+    FilterDesign --> IIR[IIR滤波器<br/>巴特沃斯/切比雪夫/椭圆]
+    FilterDesign --> Adaptive[自适应滤波器<br/>LMS/NLMS算法]
+    FilterDesign --> Wiener[维纳滤波器<br/>最优滤波]
+
+    FIR --> ApplyFilter[应用滤波器<br/>卷积/差分方程]
+    IIR --> ApplyFilter
+    Adaptive --> ApplyFilter
+    Wiener --> ApplyFilter
+
+    ApplyFilter --> Enhance[信号增强<br/>增强模块]
+    Enhance --> Normalize[归一化处理<br/>幅度调整]
+    Enhance --> DynamicRange[动态范围压缩<br/>非线性处理]
+
+    Normalize --> Compare[对比分析<br/>原始 vs 处理后]
+    Compare --> Metrics[计算性能指标<br/>SNR提升/失真度]
+
+    Metrics --> SaveAudio[保存处理音频<br/>denoised.wav]
+    Metrics --> SaveRemoved[保存去除成分<br/>removed_noise.wav]
+    Metrics --> SaveFigures[保存分析图表<br/>PNG格式]
+    Metrics --> SaveReport[生成分析报告<br/>指标数据]
+
+    SaveAudio --> End([处理完成])
+    SaveRemoved --> End
+    SaveFigures --> End
+    SaveReport --> End
+
+    style Start fill:#90EE90,stroke:#333,stroke-width:2px
+    style End fill:#FFB6C1,stroke:#333,stroke-width:2px
+    style Load fill:#ADD8E6,stroke:#333,stroke-width:2px
+    style FilterDesign fill:#FFD700,stroke:#333,stroke-width:2px
+    style Compare fill:#FFA500,stroke:#333,stroke-width:2px
+    style Metrics fill:#FF6347,stroke:#333,stroke-width:2px
+
+    classDef process stroke:#333,stroke-width:1px,fill:#E6E6FA
+    class Load,Resample,ApplyFilter,Enhance,Normalize,SaveAudio process
+
+    classDef analysis stroke:#333,stroke-width:1px,fill:#F0E68C
+    class TimeAnalysis,Stats,PlotTime,Envelope,FreqAnalysis,FFT,PSD,Spectrogram,SNR analysis
+
+    classDef filter stroke:#333,stroke-width:1px,fill:#FFB6C1
+    class FilterDesign,FIR,IIR,Adaptive,Wiener filter
+
+    classDef output stroke:#333,stroke-width:1px,fill:#98FB98
+    class Compare,Metrics,SaveAudio,SaveRemoved,SaveFigures,SaveReport output
