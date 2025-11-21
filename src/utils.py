@@ -164,6 +164,55 @@ def frame_signal(signal: np.ndarray, frame_length: int, hop_length: int) -> np.n
     return frames
 
 
+def estimate_noise_vad(signal: np.ndarray, sample_rate: int = 44100, 
+                      frame_length: int = 2048, hop_length: int = 512,
+                      energy_threshold_percentile: float = 20.0) -> np.ndarray:
+    """
+    使用语音活动检测(VAD)估计噪声
+    
+    通过检测信号中的低能量段(静音段)来估计背景噪声特性
+    
+    Args:
+        signal: 输入信号
+        sample_rate: 采样率
+        frame_length: 帧长度
+        hop_length: 帧移
+        energy_threshold_percentile: 能量阈值百分位数(0-100)，默认20表示取最低20%能量的帧
+    
+    Returns:
+        估计的噪声信号
+    """
+    # 分帧
+    frames = frame_signal(signal, frame_length, hop_length)
+    
+    # 计算每帧的能量
+    frame_energy = np.sum(frames ** 2, axis=1)
+    
+    # 使用百分位数确定能量阈值
+    energy_threshold = np.percentile(frame_energy, energy_threshold_percentile)
+    
+    # 找出低能量帧(静音段)
+    silence_frames = frames[frame_energy <= energy_threshold]
+    
+    if len(silence_frames) == 0:
+        # 如果没有检测到静音段，使用最低能量的10%帧
+        num_frames = max(1, int(len(frames) * 0.1))
+        silence_indices = np.argsort(frame_energy)[:num_frames]
+        silence_frames = frames[silence_indices]
+    
+    # 将静音段拼接成噪声估计
+    noise_estimate = silence_frames.flatten()[:len(signal)]
+    
+    # 如果噪声估计长度不足，用均值填充
+    if len(noise_estimate) < len(signal):
+        noise_mean = np.mean(silence_frames)
+        noise_std = np.std(silence_frames)
+        additional_noise = np.random.normal(noise_mean, noise_std, len(signal) - len(noise_estimate))
+        noise_estimate = np.concatenate([noise_estimate, additional_noise])
+    
+    return noise_estimate
+
+
 def add_noise(signal: np.ndarray, noise_type: str = 'white', snr_db: float = 10.0) -> np.ndarray:
     """
     向信号添加噪声

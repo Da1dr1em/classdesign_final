@@ -38,6 +38,9 @@ class AudioProcessor:
         self.signal_analysis = SignalAnalysis(sample_rate)
         self.frequency_analysis = FrequencyAnalysis(sample_rate)
 
+        # 噪声估计
+        self.noise_estimate = None
+
         # 处理结果存储
         self.processed_data = None
         self.analysis_results = {}
@@ -57,6 +60,34 @@ class AudioProcessor:
         )
         self.logger = logging.getLogger(__name__)
 
+    def _estimate_noise(self) -> None:
+        """
+        估计信号中的噪声
+        使用基于VAD的方法检测静音段并估计噪声特性
+        """
+        if self.audio_data is None:
+            return
+        
+        try:
+            from utils import estimate_noise_vad
+            self.logger.info("正在估计噪声...")
+            
+            self.noise_estimate = estimate_noise_vad(
+                self.audio_data, 
+                self.sample_rate,
+                frame_length=2048,
+                hop_length=512,
+                energy_threshold_percentile=20.0
+            )
+            
+            # 计算估计的信噪比
+            snr = self.frequency_analysis.calculate_snr(self.audio_data, self.noise_estimate)
+            self.logger.info(f"噪声估计完成，估计信噪比: {snr:.2f} dB")
+            
+        except Exception as e:
+            self.logger.warning(f"噪声估计失败: {str(e)}")
+            self.noise_estimate = None
+
     def load_audio(self, file_path: str) -> bool:
         """
         加载音频文件
@@ -74,6 +105,10 @@ class AudioProcessor:
             self.input_file = file_path
 
             self.logger.info(f"音频加载成功: {len(self.audio_data)} 个采样点, {actual_sr} Hz")
+            
+            # 自动进行噪声估计
+            self._estimate_noise()
+            
             return True
 
         except Exception as e:
@@ -399,6 +434,25 @@ class AudioProcessor:
             self.audio_data if hasattr(self, 'noise_estimate') else self.original_data,
             self.processed_data
         )
+
+        # 计算信噪比
+        if self.noise_estimate is not None:
+            original_snr = self.frequency_analysis.calculate_snr(self.original_data, self.noise_estimate)
+            processed_noise = self.processed_data - self.original_data
+            processed_snr = self.frequency_analysis.calculate_snr(self.processed_data, processed_noise)
+            snr_improvement = processed_snr - original_snr
+            
+            metrics['original_snr_estimated'] = original_snr
+            metrics['processed_snr_estimated'] = processed_snr
+            metrics['snr_improvement_estimated'] = snr_improvement
+            
+            # 输出信噪比信息
+            self.logger.info(f"\n{'='*50}")
+            self.logger.info("信噪比分析结果:")
+            self.logger.info(f"  原始信号SNR: {original_snr:.2f} dB")
+            self.logger.info(f"  处理后SNR: {processed_snr:.2f} dB")
+            self.logger.info(f"  SNR改善: {snr_improvement:.2f} dB")
+            self.logger.info(f"{'='*50}")
 
         self.analysis_results['processed'] = {
             'metrics': metrics,

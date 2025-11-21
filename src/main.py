@@ -162,20 +162,39 @@ def process_single_file(input_file: str, args) -> bool:
         processed_results = processor.analyze_processed_signal()
         print("✅ 处理后信号分析完成")
 
+        # 显示性能指标
+        if 'metrics' in processed_results:
+            metrics = processed_results['metrics']
+            print("\n" + "="*50)
+            print("性能指标分析:")
+            print("="*50)
+            
+            # 显示基于噪声估计的信噪比
+            if 'original_snr_estimated' in metrics:
+                print("\n📊 基于噪声估计的信噪比:")
+                print(f"  - 原始信号SNR: {metrics['original_snr_estimated']:.2f} dB")
+                print(f"  - 处理后SNR: {metrics['processed_snr_estimated']:.2f} dB")
+                print(f"  - SNR改善: {metrics['snr_improvement_estimated']:.2f} dB")
+            
+            # 显示其他性能指标
+            print("\n📈 降噪质量评估:")
+            if 'original_snr_db' in metrics:
+                print(f"  - 原始信噪比: {metrics['original_snr_db']:.2f} dB")
+            if 'denoised_snr_db' in metrics:
+                print(f"  - 降噪后信噪比: {metrics['denoised_snr_db']:.2f} dB")
+            if 'snr_improvement_db' in metrics:
+                print(f"  - 信噪比改善: {metrics['snr_improvement_db']:.2f} dB")
+            if 'correlation' in metrics:
+                print(f"  - 相关系数: {metrics['correlation']:.3f}")
+            if 'rmse' in metrics:
+                print(f"  - RMSE: {metrics['rmse']:.4f}")
+            print("="*50)
+
         # 保存结果
         if not args.no_save:
             output_file = args.output if args.output else None
             if processor.save_output(output_file):
-                print(f"✅ 处理结果已保存")
-
-        # 显示性能指标
-        if 'processed' in processed_results and 'metrics' in processed_results['processed']:
-            metrics = processed_results['processed']['metrics']
-            print("\n性能指标:")
-            print(f"  - 原始信噪比: {metrics.get('original_snr_db', 'N/A'):.2f} dB")
-            print(f"  - 降噪后信噪比: {metrics.get('denoised_snr_db', 'N/A'):.2f} dB")
-            print(f"  - 信噪比改善: {metrics.get('snr_improvement_db', 'N/A'):.2f} dB")
-            print(f"  - 相关系数: {metrics.get('correlation', 'N/A'):.3f}")
+                print(f"\n✅ 处理结果已保存")
 
         print("\n🎉 音频处理完成!")
         print(f"📊 分析图表保存在: results/figures/")
