@@ -213,6 +213,224 @@ def estimate_noise_vad(signal: np.ndarray, sample_rate: int = 44100,
     return noise_estimate
 
 
+def estimate_noise_minimum_statistics(signal: np.ndarray, sample_rate: int = 44100,
+                                     frame_length: int = 2048, hop_length: int = 512,
+                                     window_size: int = 10) -> np.ndarray:
+    """
+    使用最小统计法估计噪声
+    
+    在时频域追踪局部最小能量，假设在短时窗口内总会出现信号间隙，
+    这些间隙的最小值可以代表噪声水平
+    
+    Args:
+        signal: 输入信号
+        sample_rate: 采样率
+        frame_length: 帧长度
+        hop_length: 帧移
+        window_size: 滑动窗口大小（帧数）
+    
+    Returns:
+        估计的噪声信号
+    """
+    from scipy.signal import get_window
+    
+    # 分帧
+    frames = frame_signal(signal, frame_length, hop_length)
+    num_frames = len(frames)
+    
+    # 对每帧应用窗函数并计算频谱
+    window = get_window('hann', frame_length)
+    noise_spectrum = np.zeros((num_frames, frame_length // 2 + 1))
+    
+    for i in range(num_frames):
+        windowed_frame = frames[i] * window
+        spectrum = np.abs(np.fft.rfft(windowed_frame))
+        
+        # 在滑动窗口内寻找最小值
+        start_idx = max(0, i - window_size // 2)
+        end_idx = min(num_frames, i + window_size // 2 + 1)
+        
+        if start_idx == 0:
+            # 初始阶段，使用当前帧
+            noise_spectrum[i] = spectrum
+        else:
+            # 计算窗口内的最小频谱
+            window_spectra = []
+            for j in range(start_idx, min(end_idx, i + 1)):
+                windowed = frames[j] * window
+                window_spectra.append(np.abs(np.fft.rfft(windowed)))
+            
+            # 取每个频率点的最小值
+            noise_spectrum[i] = np.min(window_spectra, axis=0)
+    
+    # 将频谱转换回时域
+    noise_frames = np.zeros_like(frames)
+    for i in range(num_frames):
+        # 使用逆FFT重建信号（仅保留幅度，相位随机）
+        phase = np.random.uniform(0, 2*np.pi, len(noise_spectrum[i]))
+        complex_spectrum = noise_spectrum[i] * np.exp(1j * phase)
+        noise_frames[i] = np.fft.irfft(complex_spectrum, n=frame_length)
+    
+    # 重叠相加重建信号
+    noise_estimate = np.zeros(len(signal))
+    for i in range(num_frames):
+        start = i * hop_length
+        end = start + frame_length
+        if end <= len(noise_estimate):
+            noise_estimate[start:end] += noise_frames[i]
+        else:
+            noise_estimate[start:] += noise_frames[i][:len(noise_estimate)-start]
+    
+    # 归一化（考虑重叠）
+    overlap_count = np.zeros(len(signal))
+    for i in range(num_frames):
+        start = i * hop_length
+        end = min(start + frame_length, len(signal))
+        overlap_count[start:end] += 1
+    
+    overlap_count[overlap_count == 0] = 1
+    noise_estimate = noise_estimate / overlap_count
+    
+    return noise_estimate
+
+
+def estimate_noise_spectral_floor(signal: np.ndarray, sample_rate: int = 44100,
+                                  frame_length: int = 2048, percentile: float = 10.0) -> np.ndarray:
+    """
+    使用频谱底噪法估计噪声
+    
+    计算整段音频的频谱，取每个频率点的低百分位数作为噪声估计
+    
+    Args:
+        signal: 输入信号
+        sample_rate: 采样率
+        frame_length: 帧长度
+        percentile: 百分位数（0-100），默认10表示取最低10%
+    
+    Returns:
+        估计的噪声信号
+    """
+    from scipy.signal import get_window, stft, istft
+    
+    # 计算短时傅里叶变换
+    window = get_window('hann', frame_length)
+    f, t, Zxx = stft(signal, fs=sample_rate, window=window, 
+                     nperseg=frame_length, noverlap=frame_length//2)
+    
+    # 计算幅度谱
+    magnitude = np.abs(Zxx)
+    
+    # 对每个频率点，取时间轴上的低百分位数
+    noise_magnitude = np.percentile(magnitude, percentile, axis=1, keepdims=True)
+    
+    # 扩展到所有时间帧
+    noise_magnitude = np.tile(noise_magnitude, (1, magnitude.shape[1]))
+    
+    # 随机相位
+    phase = np.random.uniform(0, 2*np.pi, noise_magnitude.shape)
+    noise_stft = noise_magnitude * np.exp(1j * phase)
+    
+    # 逆变换回时域
+    _, noise_estimate = istft(noise_stft, fs=sample_rate, window=window,
+                              nperseg=frame_length, noverlap=frame_length//2)
+    
+    # 调整长度
+    if len(noise_estimate) > len(signal):
+        noise_estimate = noise_estimate[:len(signal)]
+    elif len(noise_estimate) < len(signal):
+        pad_length = len(signal) - len(noise_estimate)
+        noise_estimate = np.pad(noise_estimate, (0, pad_length), mode='wrap')
+    
+    return noise_estimate
+
+
+def estimate_noise_median_filter(signal: np.ndarray, sample_rate: int = 44100,
+                                frame_length: int = 2048, hop_length: int = 512) -> np.ndarray:
+    """
+    使用中值滤波法估计噪声
+    
+    对能量序列应用中值滤波，去除短时能量峰值，保留背景噪声水平
+    
+    Args:
+        signal: 输入信号
+        sample_rate: 采样率
+        frame_length: 帧长度
+        hop_length: 帧移
+    
+    Returns:
+        估计的噪声信号
+    """
+    from scipy.signal import medfilt
+    
+    # 分帧
+    frames = frame_signal(signal, frame_length, hop_length)
+    
+    # 计算每帧的RMS能量
+    frame_rms = np.sqrt(np.mean(frames ** 2, axis=1))
+    
+    # 对能量序列应用中值滤波（窗口大小约0.5秒）
+    median_window = int(0.5 * sample_rate / hop_length)
+    if median_window % 2 == 0:
+        median_window += 1  # 确保是奇数
+    
+    smoothed_rms = medfilt(frame_rms, kernel_size=median_window)
+    
+    # 取平滑后的能量与原始能量的较小值
+    noise_rms = np.minimum(frame_rms, smoothed_rms)
+    
+    # 根据估计的噪声RMS生成噪声帧
+    noise_frames = np.zeros_like(frames)
+    for i in range(len(frames)):
+        # 生成高斯噪声并缩放到目标RMS
+        noise_frames[i] = np.random.randn(frame_length) * noise_rms[i]
+    
+    # 重叠相加重建信号
+    noise_estimate = np.zeros(len(signal))
+    overlap_count = np.zeros(len(signal))
+    
+    for i in range(len(frames)):
+        start = i * hop_length
+        end = min(start + frame_length, len(signal))
+        noise_estimate[start:end] += noise_frames[i][:end-start]
+        overlap_count[start:end] += 1
+    
+    overlap_count[overlap_count == 0] = 1
+    noise_estimate = noise_estimate / overlap_count
+    
+    return noise_estimate
+
+
+def estimate_noise(signal: np.ndarray, sample_rate: int = 44100,
+                  method: str = 'vad', **kwargs) -> np.ndarray:
+    """
+    噪声估计统一接口
+    
+    Args:
+        signal: 输入信号
+        sample_rate: 采样率
+        method: 噪声估计方法
+            - 'vad': 语音活动检测法（默认，快速但需要明显静音段）
+            - 'minimum_statistics': 最小统计法（适合连续信号）
+            - 'spectral_floor': 频谱底噪法（较准确但计算量大）
+            - 'median_filter': 中值滤波法（折中方案）
+        **kwargs: 各方法的特定参数
+    
+    Returns:
+        估计的噪声信号
+    """
+    if method == 'vad':
+        return estimate_noise_vad(signal, sample_rate, **kwargs)
+    elif method == 'minimum_statistics':
+        return estimate_noise_minimum_statistics(signal, sample_rate, **kwargs)
+    elif method == 'spectral_floor':
+        return estimate_noise_spectral_floor(signal, sample_rate, **kwargs)
+    elif method == 'median_filter':
+        return estimate_noise_median_filter(signal, sample_rate, **kwargs)
+    else:
+        raise ValueError(f"未知的噪声估计方法: {method}. "
+                       f"可选: 'vad', 'minimum_statistics', 'spectral_floor', 'median_filter'")
+
+
 def add_noise(signal: np.ndarray, noise_type: str = 'white', snr_db: float = 10.0) -> np.ndarray:
     """
     向信号添加噪声

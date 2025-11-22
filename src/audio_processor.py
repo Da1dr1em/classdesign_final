@@ -22,13 +22,14 @@ class AudioProcessor:
     提供完整的音频降噪处理流程，包括信号分析、滤波器设计、信号增强和结果评估。
     """
 
-    def __init__(self, input_file: str = None, sample_rate: int = 44100):
+    def __init__(self, input_file: str = None, sample_rate: int = 44100, enable_plots: bool = True):
         """
         初始化音频处理器
 
         Args:
             input_file: 输入音频文件路径
             sample_rate: 目标采样率，默认为44.1kHz
+            enable_plots: 是否生成图表，默认True
         """
         self.sample_rate = sample_rate
         self.input_file = input_file
@@ -40,6 +41,9 @@ class AudioProcessor:
 
         # 噪声估计
         self.noise_estimate = None
+        
+        # 控制选项
+        self.enable_plots = enable_plots
 
         # 处理结果存储
         self.processed_data = None
@@ -60,29 +64,35 @@ class AudioProcessor:
         )
         self.logger = logging.getLogger(__name__)
 
-    def _estimate_noise(self) -> None:
+    def _estimate_noise(self, method: str = 'spectral_floor', **kwargs) -> None:
         """
         估计信号中的噪声
-        使用基于VAD的方法检测静音段并估计噪声特性
+        
+        Args:
+            method: 噪声估计方法
+                - 'vad': 语音活动检测法（快速，需要明显静音段）
+                - 'minimum_statistics': 最小统计法（适合连续信号）
+                - 'spectral_floor': 频谱底噪法（默认，较准确）
+                - 'median_filter': 中值滤波法（折中方案）
+            **kwargs: 各方法的特定参数
         """
         if self.audio_data is None:
             return
         
         try:
-            from utils import estimate_noise_vad
-            self.logger.info("正在估计噪声...")
+            from utils import estimate_noise
+            self.logger.info(f"正在使用 {method} 方法估计噪声...")
             
-            self.noise_estimate = estimate_noise_vad(
+            self.noise_estimate = estimate_noise(
                 self.audio_data, 
                 self.sample_rate,
-                frame_length=2048,
-                hop_length=512,
-                energy_threshold_percentile=20.0
+                method=method,
+                **kwargs
             )
             
             # 计算估计的信噪比
             snr = self.frequency_analysis.calculate_snr(self.audio_data, self.noise_estimate)
-            self.logger.info(f"噪声估计完成，估计信噪比: {snr:.2f} dB")
+            self.logger.info(f"噪声估计完成，估计信噪比: {snr:.2f} dB (方法: {method})")
             
         except Exception as e:
             self.logger.warning(f"噪声估计失败: {str(e)}")
@@ -130,19 +140,22 @@ class AudioProcessor:
         # 计算统计特性
         stats = self.signal_analysis.calculate_statistics(self.audio_data)
 
-        # 绘制时域波形
-        time_fig = self.signal_analysis.plot_time_domain(
-            self.audio_data,
-            title="原始信号时域波形",
-            save_path="results/figures/time_domain_original.png"
-        )
+        # 绘制时域波形（仅在启用图表时）
+        time_fig = None
+        envelope_fig = None
+        if self.enable_plots:
+            time_fig = self.signal_analysis.plot_time_domain(
+                self.audio_data,
+                title="原始信号时域波形",
+                save_path="results/figures/time_domain_original.png"
+            )
 
-        # 绘制信号包络
-        envelope_fig = self.signal_analysis.plot_envelope(
-            self.audio_data,
-            title="原始信号包络",
-            save_path="results/figures/envelope_original.png"
-        )
+            # 绘制信号包络
+            envelope_fig = self.signal_analysis.plot_envelope(
+                self.audio_data,
+                title="原始信号包络",
+                save_path="results/figures/envelope_original.png"
+            )
 
         # 计算自相关
         lags, correlation = self.signal_analysis.calculate_correlation(self.audio_data)
@@ -420,12 +433,14 @@ class AudioProcessor:
 
         self.logger.info("正在分析处理后的信号")
 
-        # 对比分析
-        comparison_fig = self.frequency_analysis.compare_signals(
-            self.original_data, self.processed_data,
-            title="降噪前后信号对比",
-            save_path="results/figures/comparison_analysis.png"
-        )
+        # 对比分析（仅在启用图表时）
+        comparison_fig = None
+        if self.enable_plots:
+            comparison_fig = self.frequency_analysis.compare_signals(
+                self.original_data, self.processed_data,
+                title="降噪前后信号对比",
+                save_path="results/figures/comparison_analysis.png"
+            )
 
         # 计算性能指标
         from utils import evaluate_noise_reduction
@@ -437,21 +452,37 @@ class AudioProcessor:
 
         # 计算信噪比
         if self.noise_estimate is not None:
+            # 原始信号的SNR（使用原始噪声估计）
             original_snr = self.frequency_analysis.calculate_snr(self.original_data, self.noise_estimate)
-            processed_noise = self.processed_data - self.original_data
-            processed_snr = self.frequency_analysis.calculate_snr(self.processed_data, processed_noise)
+            
+            # 处理后信号的SNR（重新估计噪声）
+            # 使用相同的方法估计处理后信号的噪声
+            from utils import estimate_noise
+            processed_noise_estimate = estimate_noise(
+                self.processed_data,
+                self.sample_rate,
+                method='spectral_floor',  # 使用相同的优质方法
+                percentile=10.0
+            )
+            processed_snr = self.frequency_analysis.calculate_snr(self.processed_data, processed_noise_estimate)
             snr_improvement = processed_snr - original_snr
+            
+            # 同时保存简单差值法的结果作为参考
+            residual_noise = self.processed_data - self.original_data
+            residual_snr = self.frequency_analysis.calculate_snr(self.processed_data, residual_noise)
             
             metrics['original_snr_estimated'] = original_snr
             metrics['processed_snr_estimated'] = processed_snr
             metrics['snr_improvement_estimated'] = snr_improvement
+            metrics['residual_snr'] = residual_snr  # 基于残差的SNR
             
             # 输出信噪比信息
             self.logger.info(f"\n{'='*50}")
             self.logger.info("信噪比分析结果:")
-            self.logger.info(f"  原始信号SNR: {original_snr:.2f} dB")
-            self.logger.info(f"  处理后SNR: {processed_snr:.2f} dB")
+            self.logger.info(f"  原始信号SNR: {original_snr:.2f} dB (噪声估计法)")
+            self.logger.info(f"  处理后SNR: {processed_snr:.2f} dB (噪声估计法)")
             self.logger.info(f"  SNR改善: {snr_improvement:.2f} dB")
+            self.logger.info(f"  残差法SNR: {residual_snr:.2f} dB (仅供参考)")
             self.logger.info(f"{'='*50}")
 
         self.analysis_results['processed'] = {

@@ -53,9 +53,23 @@ def quick_snr_test(input_file):
     
     # 计算处理后的SNR
     print("\n[4/4] 计算性能指标...")
-    processed_noise = processor.processed_data - processor.original_data
-    processed_snr = freq_analysis.calculate_snr(processor.processed_data, processed_noise)
-    snr_improvement = processed_snr - original_snr
+    
+    # 方法1: 残差法（旧方法）
+    processed_noise_residual = processor.processed_data - processor.original_data
+    processed_snr_residual = freq_analysis.calculate_snr(processor.processed_data, processed_noise_residual)
+    
+    # 方法2: 重新估计法（新方法）
+    from utils import estimate_noise
+    processed_noise_estimate = estimate_noise(
+        processor.processed_data,
+        processor.sample_rate,
+        method='spectral_floor',
+        percentile=10.0
+    )
+    processed_snr_estimated = freq_analysis.calculate_snr(processor.processed_data, processed_noise_estimate)
+    
+    snr_improvement_residual = processed_snr_residual - original_snr
+    snr_improvement_estimated = processed_snr_estimated - original_snr
     
     # 计算其他指标
     correlation = np.corrcoef(processor.original_data, processor.processed_data)[0, 1]
@@ -66,8 +80,12 @@ def quick_snr_test(input_file):
     print("📊 信噪比分析结果:")
     print("="*60)
     print(f"  原始信号SNR:     {original_snr:.2f} dB")
-    print(f"  处理后SNR:       {processed_snr:.2f} dB")
-    print(f"  SNR改善:         {snr_improvement:+.2f} dB")
+    print(f"\n  方法1 - 残差法 (旧):")
+    print(f"    处理后SNR:     {processed_snr_residual:.2f} dB")
+    print(f"    SNR改善:       {snr_improvement_residual:+.2f} dB")
+    print(f"\n  方法2 - 重新估计法 (新) ⭐推荐:")
+    print(f"    处理后SNR:     {processed_snr_estimated:.2f} dB")
+    print(f"    SNR改善:       {snr_improvement_estimated:+.2f} dB")
     
     print(f"\n📈 质量评估:")
     print(f"  相关系数:        {correlation:.3f}")
@@ -75,13 +93,18 @@ def quick_snr_test(input_file):
     
     # 解释结果
     print(f"\n💡 分析:")
-    if snr_improvement > 3:
-        print(f"  ✅ 显著改善！SNR提升了 {snr_improvement:.2f} dB")
-    elif snr_improvement > 0:
-        print(f"  ✓ 轻微改善，SNR提升了 {snr_improvement:.2f} dB")
+    print(f"  两种方法的差异: {abs(processed_snr_estimated - processed_snr_residual):.2f} dB")
+    
+    if processed_snr_estimated > processed_snr_residual + 3:
+        print(f"  ✅ 重新估计法更准确！残差法低估了处理后的SNR")
+        print(f"     因为残差包含了被滤波器去除的有用信号")
+    
+    if snr_improvement_estimated > 3:
+        print(f"  ✅ 显著改善！SNR提升了 {snr_improvement_estimated:.2f} dB")
+    elif snr_improvement_estimated > 0:
+        print(f"  ✓ 轻微改善，SNR提升了 {snr_improvement_estimated:.2f} dB")
     else:
-        print(f"  ⚠️ SNR下降了 {abs(snr_improvement):.2f} dB")
-        print(f"     这可能是因为滤波器也去除了部分有用信号")
+        print(f"  → 滤波器在去除噪声的同时也去除了部分有用信号")
     
     if correlation > 0.8:
         print(f"  ✅ 信号保真度很好 (相关系数 {correlation:.3f})")

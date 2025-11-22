@@ -96,6 +96,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument('--output', type=str, help='输出文件路径')
     parser.add_argument('--no-save', action='store_true',
                        help='不保存处理结果')
+    parser.add_argument('--no-plots', action='store_true',
+                       help='不生成图表（加快处理速度）')
 
     return parser
 
@@ -116,7 +118,8 @@ def process_single_file(input_file: str, args) -> bool:
 
     try:
         # 创建音频处理器
-        processor = AudioProcessor(sample_rate=args.sample_rate)
+        enable_plots = not args.no_plots
+        processor = AudioProcessor(sample_rate=args.sample_rate, enable_plots=enable_plots)
 
         # 1. 加载音频文件
         print("步骤 1/6: 加载音频文件...")
@@ -171,23 +174,26 @@ def process_single_file(input_file: str, args) -> bool:
             
             # 显示基于噪声估计的信噪比
             if 'original_snr_estimated' in metrics:
-                print("\n📊 基于噪声估计的信噪比:")
+                print("\n📊 基于噪声估计法的信噪比 (Spectral Floor):")
                 print(f"  - 原始信号SNR: {metrics['original_snr_estimated']:.2f} dB")
                 print(f"  - 处理后SNR: {metrics['processed_snr_estimated']:.2f} dB")
-                print(f"  - SNR改善: {metrics['snr_improvement_estimated']:.2f} dB")
+                print(f"  - SNR改善: {metrics['snr_improvement_estimated']:+.2f} dB")
+                
+                if 'residual_snr' in metrics:
+                    print(f"\n📉 基于残差法的信噪比 (仅供参考):")
+                    print(f"  - 处理后SNR: {metrics['residual_snr']:.2f} dB")
+                    print(f"  - 说明: 残差法假设处理前后差异即为噪声")
             
             # 显示其他性能指标
             print("\n📈 降噪质量评估:")
-            if 'original_snr_db' in metrics:
-                print(f"  - 原始信噪比: {metrics['original_snr_db']:.2f} dB")
-            if 'denoised_snr_db' in metrics:
-                print(f"  - 降噪后信噪比: {metrics['denoised_snr_db']:.2f} dB")
-            if 'snr_improvement_db' in metrics:
-                print(f"  - 信噪比改善: {metrics['snr_improvement_db']:.2f} dB")
             if 'correlation' in metrics:
                 print(f"  - 相关系数: {metrics['correlation']:.3f}")
             if 'rmse' in metrics:
                 print(f"  - RMSE: {metrics['rmse']:.4f}")
+            if 'original_snr_db' in metrics:
+                print(f"  - 原始信噪比(评估): {metrics['original_snr_db']:.2f} dB")
+            if 'denoised_snr_db' in metrics:
+                print(f"  - 降噪后信噪比(评估): {metrics['denoised_snr_db']:.2f} dB")
             print("="*50)
 
         # 保存结果
