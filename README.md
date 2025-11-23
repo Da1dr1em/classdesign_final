@@ -83,27 +83,12 @@ class AudioProcessor:
         #   - target_max: 目标最大值（默认 0.9）
 ```
 
+## 示例代码
+
 **控制器用法示例**：
 
-```python
-from src.audio_processor import AudioProcessor
+使用代码执行分析并生成图标:
 
-# 初始化控制器
-processor = AudioProcessor()
-
-# 降噪流程 (1) 获取原始信号
-processor.load_audio('input_audio.wav')
-
-# (2) 处理前分析 - 时域
-processor.analyze_time_domain()
-
-# (3) 频域分析
-processor.analyze_frequency_domain()
-
-# (4) 降噪处理 - 数字转换功能
-processor.apply_filter(
-    'fir_lowpass',
-    cutoff_freq=2000,
-    ][:30],  # 数字转换的幅度值）
-    target_sr = 44100,
-    target_sr = 44100
+```shell
+python src/main.py --input .\data\input\conversation_human.wav --filter fir_bandpass --cutoff 300 --highcut 3400 --enhance
+```
